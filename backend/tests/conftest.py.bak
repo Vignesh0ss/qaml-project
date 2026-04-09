@@ -1,0 +1,44 @@
+import pytest
+from unittest.mock import patch
+
+@pytest.fixture(autouse=True)
+def mock_gemini():
+    with patch("app.services.gemini_service.recognize_disease") as m1, \
+         patch("app.services.gemini_service.generate_gemini_candidates") as m2, \
+         patch("app.services.gemini_service.generate_medical_summary") as m3, \
+         patch("app.services.gemini_service._generate") as m4, \
+         patch("app.services.pipeline.load_candidates") as m5, \
+         patch("app.services.pipeline.get_overlap_matrix") as m6:
+        
+        m1.return_value = {
+            "canonical_name": "Mock Disease",
+            "description": "A mocked disease for testing.",
+            "icd_code": "M0CK"
+        }
+        m2.return_value = [
+            {
+                "molregno": "MOCK_1",
+                "canonical_smiles": "C",
+                "standard_value": "90.0",
+                "target_name": "MockDrug",
+                "target_chembl_id": "",
+                "mechanism": "Mock mechanism",
+                "evidence_level": "Computational",
+                "predicted_pIC50": "90.0",
+                "source": "gemini_ai",
+                "score": 0.9
+            }
+        ]
+        m3.return_value = "Mock medical summary."
+        m4.return_value = "Mock AI response"
+        
+        import numpy as np
+        drugs = [
+            {"molregno": "TEST_1", "canonical_smiles": "C", "standard_value": "50.0", "target_name": "TestDrug1"},
+            {"molregno": "TEST_2", "canonical_smiles": "CC", "standard_value": "60.0", "target_name": "TestDrug2"},
+            {"molregno": "TEST_3", "canonical_smiles": "CCC", "standard_value": "70.0", "target_name": "TestDrug3"},
+        ]
+        m5.return_value = (drugs, np.array([50.0, 60.0, 70.0]), ["C", "CC", "CCC"])
+        m6.return_value = np.zeros((3, 3))
+        
+        yield (m1, m2, m3, m4, m5, m6)

@@ -1,0 +1,30 @@
+version: "3.9"
+services:
+  backend:
+    build: ../backend
+    env_file: ../.env
+    ports: ["5000:5000"]
+    depends_on: [mongo, redis]
+    environment:
+      - MONGO_URI=mongodb://mongo:27017/
+      - MONGODB_DB=quantum_drug_repurposing
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+  celery_worker:
+    build: ../backend
+    command: celery -A app.tasks.pipeline_tasks worker --loglevel=info
+    env_file: ../.env
+    depends_on: [redis, mongo]
+    environment:
+      - MONGO_URI=mongodb://mongo:27017/
+      - CELERY_BROKER_URL=redis://redis:6379/0
+  frontend:
+    build: ../frontend
+    ports: ["3000:80"]
+  mongo:
+    image: mongo:7
+    volumes: ["mongo_data:/data/db"]
+  redis:
+    image: redis:7-alpine
+volumes:
+  mongo_data:

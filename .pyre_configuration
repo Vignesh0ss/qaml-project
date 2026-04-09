@@ -1,0 +1,8 @@
+{
+  "source_directories": [
+    "backend"
+  ],
+  "exclude": [
+    "\\.venv/.*"
+  ]
+}
