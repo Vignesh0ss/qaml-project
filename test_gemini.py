@@ -11,8 +11,14 @@ if BACKEND_DIR not in sys.path:
 
 import sys
 sys.path.insert(0, './backend')
-import os
-os.environ['GEMINI_API_KEY'] = 'AIzaSyDdGVmZsT8_hJJVOXlo9MD5xqQvN6n8lPE'
+
+# Load API key from environment variable instead of hardcoding
+gemini_api_key = os.environ.get('GEMINI_API_KEY')
+if not gemini_api_key:
+    print("ERROR: GEMINI_API_KEY environment variable not set. Please configure it in your .env file.")
+    sys.exit(1)
+
+os.environ['GEMINI_API_KEY'] = gemini_api_key
 
 print("=== Gemini Disease Recognition ===")
 from app.services.gemini_service import recognize_disease
