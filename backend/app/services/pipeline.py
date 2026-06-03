@@ -31,7 +31,8 @@ from .audit_service import AuditLogger
 from .qubo_service import build_qubo
 from .quantum_service import optimize_qubo
 from . import ai_service
-from . import esm2_service
+# from . import esm2_service (DEPRECATED)
+
 
 # Pipeline version — bump this to invalidate stale cached results
 PIPELINE_VERSION = "v6_target_classify_qubo"
@@ -299,32 +300,22 @@ def _safe_upsert(collection, filter_doc: Dict[str, Any], payload: Dict[str, Any]
 # Stage 1: Disease → Gene
 # ─────────────────────────────────────────────────────────────────────────────
 def disease_to_genes(disease_name: str) -> Set[str]:
-    """Map disease name to Gene symbols via ClinVar cache with improved matching."""
+    """Map disease name to Gene symbols via ClinVar cache."""
     genes: Set[str] = set()
     q = disease_name.strip().lower()
     
-    # Strategy 1: Multi-word phrase matching against ClinVar phenotypes
-    # Load ClinVar and search for full disease name as substring in PhenotypeList
-    if GOLD_SET_TSV.is_file():
-        try:
-            with open(GOLD_SET_TSV, "r", encoding="utf-8-sig") as f:
-                r = csv.DictReader(f, delimiter="\t")
-                for row in r:
-                    phenos = str(row.get("PhenotypeList", "")).lower()
-                    gene = str(row.get("GeneSymbol", "")).strip().upper()
-                    if not gene:
-                        continue
-                    # Match full disease name as substring in phenotype list
-                    if q in phenos:
-                        genes.add(gene)
-        except Exception:
-            pass
-    
-    # Strategy 2: Word-token matching against pre-loaded cache (fallback)
-    if not genes:
-        for word in re.split(r'[^a-z0-9]', q):
-            if len(word) > 3 and word in _CLINVAR_CACHE:
-                genes.update(_CLINVAR_CACHE[word])
+    if not _CLINVAR_CACHE:
+        _load_clinvar()
+        
+    # Search for full disease name or individual tokens in cache
+    # The cache is indexed by lower-case phenotype tokens.
+    tokens = re.split(r'[^a-z0-9]', q)
+    for word in tokens:
+        if len(word) > 3 and word in _CLINVAR_CACHE:
+            genes.update(_CLINVAR_CACHE[word])
+            
+    print(f"[Pipeline] Genes for '{disease_name}': {genes} (source: ClinVar cache)")
+    return genes
     
     # Strategy 3 removed (no hardcoding of rare diseases)
         
@@ -507,7 +498,8 @@ def _tid_to_sequence_map(tids: List[int], conn: sqlite3.Connection) -> Dict[int,
 
 def _generate_summary_async(task_id: str, canonical_name: str, ranked: List[dict], db) -> None:
     """
-    Generate Gemini summary out-of-band so query completion is not blocked.
+    Generate AI summary out-of-band so query completion is not blocked.
+
     """
     try:
         ai_report = ai_service.generate_medical_summary(canonical_name, ranked)
@@ -768,7 +760,8 @@ def run_pipeline(task_id: str, query: Dict[str, Any], db=None) -> Dict[str, Any]
     if db is not None:
         try:
             # Quick check if DB is actually reachable before starting
-            db.command("ping", maxTimeMS=200)
+            if hasattr(db, "command"):
+                db.command("ping", maxTimeMS=200)
             db["queries"].update_one({"task_id": task_id}, {"$set": {"status": "running"}})
         except Exception:
             print(f"[Pipeline] Database offline for task {task_id}, proceeding in degraded mode.")
@@ -777,7 +770,7 @@ def run_pipeline(task_id: str, query: Dict[str, Any], db=None) -> Dict[str, Any]
     # Normalize input for strict caching: 'Progeria' -> 'progeria'
     disease_name_input = query.get("disease_name", "").strip()
     disease_name = disease_name_input.lower()
-    top_k = 10
+    top_k = int(query.get("top_k", 10))
     cache_key = f"{disease_name}|top_k={top_k}|v={PIPELINE_VERSION}"
     
     # NEW: Instant Result Caching (Sub-1s) — with version check for cache busting
@@ -985,34 +978,30 @@ def run_pipeline(task_id: str, query: Dict[str, Any], db=None) -> Dict[str, Any]
             candidates = get_top_ml_drugs(canonical_name, top_k=max(top_k, 10))
         print(f"[Pipeline] After filter: {len(candidates)} | mode={mode} | allow_pathway_targets={allow_pathway_targets}")
 
-        # 5c. Protein embeddings (ESM2) before ML-style composite scoring.
-        # Disease-side embedding is pooled from mapped target proteins.
+        # 5c. Protein embeddings (ESM2) – STAGE REMOVED per user request.
         disease_embedding: Optional[List[float]] = None
-        tid_seq_map: Dict[int, str] = {}
-        tid_emb_cache: Dict[int, List[float]] = {}
-        if tids:
-            try:
-                tid_seq_map = _tid_to_sequence_map(list(tids), conn)
-                disease_vectors: List[List[float]] = []
-                for tid in list(tids)[:3]:
-                    seq = tid_seq_map.get(int(tid))
-                    if not seq:
-                        continue
-                    emb = esm2_service.embed_protein_sequence(seq, retries=1)
-                    if emb:
-                        tid_emb_cache[int(tid)] = emb
-                        disease_vectors.append(emb)
-                if disease_vectors:
-                    min_dim = min(len(v) for v in disease_vectors)
-                    pooled = np.mean([np.array(v[:min_dim], dtype=float) for v in disease_vectors], axis=0)
-                    disease_embedding = pooled.tolist()
-                    AuditLogger.log(db, task_id, "ESM2_EMBEDDING", {"disease_tid_count": len(disease_vectors)}, {})
-            except Exception as e:
-                print(f"[Pipeline] ESM2 stage skipped: {e}")
+
 
         # 6. Scoring: Biology-Focused Composite Score (using REAL data)
         t_ml = time.time()
+        
+        # FR-ML-01: Get real ML scores using the trained model
+        ml_scores = [0.5] * len(candidates)
+        if ml_service is not None and candidates:
+            try:
+                smiles_list = [c.get("canonical_smiles", "") for c in candidates]
+                tids_list = [str(c.get("tid") or c.get("molregno")) for c in candidates]
+                ml_scores = ml_service.score_drugs(
+                    task_id=task_id,
+                    target_ids=tids_list,
+                    drug_smiles=smiles_list,
+                    db=db
+                )
+            except Exception as e:
+                print(f"[Pipeline] ML scoring failed, using proxy fallback: {e}")
+
         known_disease_drugs = {
+
             str(d.get("molregno", ""))
             for d in candidates
             if str(d.get("target_origin", "DIRECT")).upper() == "DIRECT"
@@ -1039,19 +1028,9 @@ def run_pipeline(task_id: str, query: Dict[str, Any], db=None) -> Dict[str, Any]
             # Lipinski score (druglikeness)
             lip = lipinski_score(d.get("canonical_smiles", ""))
 
-            # ESM2 protein similarity (disease protein embedding vs candidate target embedding)
+            # ESM2 protein similarity – REMOVED
             esm2_similarity = 0.0
-            tid = d.get("tid")
-            if disease_embedding is not None and isinstance(tid, int):
-                target_emb = tid_emb_cache.get(tid)
-                if target_emb is None:
-                    seq = tid_seq_map.get(tid)
-                    if seq:
-                        target_emb = esm2_service.embed_protein_sequence(seq, retries=1)
-                        if target_emb:
-                            tid_emb_cache[tid] = target_emb
-                if target_emb:
-                    esm2_similarity = _cosine_similarity(disease_embedding, target_emb)
+
 
             # Origin weight: prioritize direct biological mapping over weaker fallbacks.
             origin = str(d.get("target_origin", "DIRECT")).upper()
@@ -1061,19 +1040,24 @@ def run_pipeline(task_id: str, query: Dict[str, Any], db=None) -> Dict[str, Any]
             d["target_type"] = target_type
             
             # Biology-constrained score:
-            # 0.4*ml_proxy + 0.3*bioactivity + 0.2*target_type + 0.1*novelty
+            # 0.4*ml_model + 0.3*bioactivity + 0.2*target_type + 0.1*novelty
+            real_ml_score = ml_scores[candidates.index(d)] if d in candidates else 0.5
+            
+            # Heuristic proxy for audit/fallback compatibility
             ml_proxy = (
-                0.45 * phase_score +
-                0.30 * confidence_score +
-                0.15 * lip +
-                0.10 * esm2_similarity
+                0.50 * phase_score +
+                0.35 * confidence_score +
+                0.15 * lip
             )
+
+            # Final composite uses the REAL ML model score as the primary predictive factor
             composite = (
-                0.40 * ml_proxy +
+                0.40 * real_ml_score +
                 0.30 * activity_score +
                 0.20 * target_type_weight +
                 0.10 * novelty_score
             )
+
             if mode == "fallback":
                 composite *= 0.8
             d["score"] = round(min(1.0, max(0.0, composite)), 4)
@@ -1094,11 +1078,14 @@ def run_pipeline(task_id: str, query: Dict[str, Any], db=None) -> Dict[str, Any]
                 "phase": round(phase_score, 3),
                 "confidence": round(confidence_score, 3),
                 "lipinski": round(lip, 3),
-                "esm2_similarity": round(esm2_similarity, 3),
+                "esm2_similarity": 0.0,
+
                 "target_type_weight": round(target_type_weight, 3),
                 "novelty": round(novelty_score, 3),
-                "ml_proxy": round(ml_proxy, 3),
+                "ml_model_score": round(real_ml_score, 3),
+                "ml_proxy_heuristic": round(ml_proxy, 3),
             }
+
         
         print(f"[Timer] STAGE 6 (Composite Scoring): {time.time() - t_ml:.2f}s")
 
@@ -1315,9 +1302,13 @@ def run_pipeline(task_id: str, query: Dict[str, Any], db=None) -> Dict[str, Any]
         }
         
         if db is not None:
+             # Ensure status is 'done' only after results are successfully written
              _safe_upsert(db["results"], {"task_id": task_id}, dict(result))
              db["queries"].update_one({"task_id": task_id}, {"$set": {"status": "done"}})
+             
              AuditLogger.log(db, task_id, "PIPELINE_COMPLETE", {}, {"result_count": len(ranked)})
+             
+             # Start async summary generation
              threading.Thread(
                  target=_generate_summary_async,
                  args=(task_id, canonical_name, ranked, db),
@@ -1325,6 +1316,7 @@ def run_pipeline(task_id: str, query: Dict[str, Any], db=None) -> Dict[str, Any]
              ).start()
              
         return result
+
 
     except Exception as e:
         print(f"[Pipeline v3] CRITICAL FAILURE: {str(e)}")

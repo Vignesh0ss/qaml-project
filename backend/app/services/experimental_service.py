@@ -120,6 +120,7 @@ def fetch_chembl_drug_names_for_disease(
     disease_name: str,
     fallback_genes: Set[str],
     limit: int = 8,
+    existing_conn: sqlite3.Connection | None = None,
 ) -> List[str]:
     """
     Disease → ClinVar genes ∪ fallback genes → UniProt → ChEMBL TIDs → approved small-molecule drugs.
@@ -127,45 +128,54 @@ def fetch_chembl_drug_names_for_disease(
     """
     from app.services import pipeline as pl
 
-    conn = pl._chembl_conn()
+    conn = existing_conn if existing_conn else pl._chembl_conn()
     if conn is None:
         return _static_drug_names_for_disease(disease_name)
 
     try:
-        genes: Set[str] = set(pl.disease_to_genes(disease_name.lower()))
-        genes |= set(fallback_genes)
-        if not genes:
-            return _static_drug_names_for_disease(disease_name)
+        def _search():
+            try:
+                genes: Set[str] = set(pl.disease_to_genes(disease_name.lower()))
+                genes |= set(fallback_genes)
+                if not genes:
+                    return None
 
-        uniprots = pl.genes_to_uniprots(genes, conn)
-        if not uniprots:
-            return _static_drug_names_for_disease(disease_name)
-        try:
-            tids = pl.uniprots_to_tids(uniprots, conn)
-        except Exception:
-            return _static_drug_names_for_disease(disease_name)
-        if not tids:
-            return _static_drug_names_for_disease(disease_name)
-        drugs, _rej = pl.get_drugs_by_tids(tids, conn)
-        seen: Set[str] = set()
-        out: List[str] = []
-        for d in drugs:
-            n = str(d.get("drug_name", "")).strip()
-            if not n:
-                continue
-            k = n.lower()
-            if k in seen:
-                continue
-            seen.add(k)
-            out.append(n)
-            if len(out) >= limit:
-                break
-        return out if out else _static_drug_names_for_disease(disease_name)
+                uniprots = pl.genes_to_uniprots(genes, conn)
+                if not uniprots:
+                    return None
+                try:
+                    tids = pl.uniprots_to_tids(uniprots, conn)
+                except Exception:
+                    return None
+                if not tids:
+                    return None
+                drugs, _rej = pl.get_drugs_by_tids(tids, conn)
+                seen: Set[str] = set()
+                out: List[str] = []
+                for d in drugs:
+                    n = str(d.get("drug_name", "")).strip()
+                    if not n:
+                        continue
+                    k = n.lower()
+                    if k in seen:
+                        continue
+                    seen.add(k)
+                    out.append(n)
+                    if len(out) >= limit:
+                        break
+                return out
+            except Exception:
+                return None
+
+        # Use a tight 3.0s timeout for experimental mode to keep response < 5s
+        res = pl.run_with_timeout(_search, timeout=3.0, stage_name=f"ChEMBL-{disease_name}")
+        return res if res else _static_drug_names_for_disease(disease_name)
     finally:
-        try:
-            conn.close()
-        except Exception:
-            pass
+        if not existing_conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 
 def attach_database_drug_recommendations(
@@ -173,14 +183,29 @@ def attach_database_drug_recommendations(
     per_disease_k: int = 5,
 ) -> List[Dict[str, Any]]:
     """Attach per-disease drug name lists from ChEMBL (no AI)."""
+    from app.services import pipeline as pl
     enriched: List[Dict[str, Any]] = []
-    for p in predictions or []:
-        disease = str(p.get("disease", "")).strip()
-        fallback = DISEASE_FALLBACK_GENES.get(disease, set())
-        names = fetch_chembl_drug_names_for_disease(disease, fallback, limit=per_disease_k) if disease else []
-        item = dict(p)
-        item["recommended_drugs"] = names
-        enriched.append(item)
+    print(f"[Experimental] Enriching {len(predictions or [])} predictions with drugs...")
+    conn = pl._chembl_conn()
+    try:
+        for p in predictions or []:
+            disease = str(p.get("disease", "")).strip()
+            fallback = DISEASE_FALLBACK_GENES.get(disease, set())
+            print(f"[Experimental] Fetching drugs for {disease}...")
+            start = time.time()
+            names = fetch_chembl_drug_names_for_disease(
+                disease, fallback, limit=per_disease_k, existing_conn=conn
+            ) if disease else []
+            print(f"[Experimental] Fetched {len(names)} drugs in {time.time()-start:.2f}s")
+            item = dict(p)
+            item["recommended_drugs"] = names
+            enriched.append(item)
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
     return enriched
 
 

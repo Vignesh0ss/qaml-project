@@ -125,7 +125,8 @@ class AuditLogger:
         if db is not None:
             try:
                 # Use a small timeout for the liveness check
-                db.command("ping", maxTimeMS=200)
+                if hasattr(db, "command"):
+                    db.command("ping", maxTimeMS=200)
             except Exception:
                 print(f"[Audit] Database offline, skipping event {event_type}")
                 return ""

@@ -2,6 +2,23 @@
 
 Production-ready system for rare-disease drug repurposing: ML scoring, QUBO optimization, and secure audit logging.
 
+## Live demo
+
+Replace the URLs below once you deploy (see [Environment](#environment) for required variables).
+
+| | URL |
+|--|-----|
+| **Frontend** (Vercel) | https://your-vercel-app.vercel.app |
+| **Backend health** (Render) | https://your-render-app.onrender.com/api/v1/health |
+
+### Production and platform notes
+
+These are **host limits**, not application bugs:
+
+- **Render free tier** — The web service sleeps after idle time. Expect **roughly 20–60 seconds** on the first request after sleep. **Socket.IO / WebSockets** can be flaky across sleep and cold starts; long-polling fallback may appear. For a stable demo, prefer REST polling over persistent sockets where possible.
+- **ML and data** — Full **GNN training**, large **dataset ingestion** (e.g. full ChEMBL/DrugBank pipelines), and heavy batch jobs are **not** suited to free-tier CPU/RAM. Deployed instances are intended for **API + lightweight inference** and demos.
+- **MongoDB Atlas (M0)** — Connection count and cold starts apply; the backend URI is tuned with reasonable driver timeouts (see `.env.example`).
+
 ## Quick start
 
 ### Backend (Flask API + pipeline)
@@ -71,6 +88,53 @@ Processed outputs: `backend/data/processed/` (drugbank_drug_smiles.csv, clinvar_
 | GET | /api/v1/models | List model versions |
 | GET | /api/v1/reports/<task_id>/pdf | PDF report (501 stub) |
 
+## Example: Progeria query output
+
+**Input:** `POST /api/v1/query` with body `{"disease_name": "Progeria", "top_k": 5}`.
+
+After the task completes, **`GET /api/v1/results/<task_id>`** returns ranked candidates (fields depend on data and pipeline path; illustrative shape):
+
+```json
+{
+  "task_id": "550e8400-e29b-41d4-a716-446655440000",
+  "disease_name": "Progeria",
+  "top_k": 5,
+  "qubo_energy": -12.34,
+  "ranked_drugs": [
+    {
+      "rank": 1,
+      "score": 0.92,
+      "molregno": "12345",
+      "canonical_smiles": "CC(C)Cc1ccc(cc1)C(C)C(=O)O",
+      "target_name": "Example target"
+    },
+    {
+      "rank": 2,
+      "score": 0.88,
+      "molregno": "12346",
+      "canonical_smiles": null,
+      "target_name": "Another target"
+    }
+  ]
+}
+```
+
+Exact scores, molecule IDs, and SMILES come from your processed datasets and mapping pipeline. Degraded or AI-assisted paths may return fewer rows or placeholders when external keys or local data are unavailable.
+
+## Screenshots
+
+Add captures from your deployed or local UI under `docs/screenshots/` (create the folder if needed), then the images below will render on GitHub.
+
+| Dashboard | Results | Audit |
+| --- | --- | --- |
+| ![Dashboard](docs/screenshots/dashboard.png) | ![Results](docs/screenshots/results.png) | ![Audit](docs/screenshots/audit.png) |
+
+Suggested captures: main **Dashboard**, **Results** after a Progeria (or similar) run, and **Audit** / audit history or verification view.
+
 ## Environment
 
-Copy `.env.example` to `.env` and set `SECRET_KEY`, `JWT_SECRET_KEY`, `MONGO_URI`, and optionally `REDIS_URL` / `CELERY_BROKER_URL` for async workers.
+Copy `.env.example` to `.env` and configure:
+
+- **Backend:** `SECRET_KEY`, `JWT_SECRET_KEY`, `MONGO_URI`, `MONGODB_DB` (must match Atlas DB name if used). For production, set `FLASK_ENV=production` and **`CORS_ORIGINS`** to your frontend origin(s), comma-separated (e.g. `https://your-app.vercel.app`).
+- **Optional:** `REDIS_URL` / `CELERY_BROKER_URL` for async workers (not typical on free-tier hosts).
+- **Frontend (Vercel / production build):** `VITE_API_BASE_URL` = API **origin only** (no `/api/v1`), e.g. `https://your-render-app.onrender.com`.

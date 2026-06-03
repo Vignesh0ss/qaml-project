@@ -1,9 +1,10 @@
 import axios from "axios";
 
-const rawBase =
+/** API origin only (no path), e.g. https://api.example.com — axios baseURL adds /api/v1 */
+const apiOrigin =
   (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/+$/, "").trim() || "";
 const api = axios.create({
-  baseURL: rawBase || "/api/v1",
+  baseURL: apiOrigin ? `${apiOrigin}/api/v1` : "/api/v1",
   timeout: 120000,
   headers: { "Content-Type": "application/json" },
 });
@@ -43,9 +44,9 @@ api.interceptors.response.use(
       (!err.response && err.message?.toLowerCase().includes("network"));
     if (isNetwork) {
       const hint =
-        rawBase && !rawBase.startsWith("/")
-          ? `Cannot reach API at ${rawBase}. Check the URL and CORS.`
-          : "Cannot reach the backend API. Start the Flask server (port 5000) and use the Vite dev server so /api is proxied, or set VITE_API_BASE_URL to your API root (e.g. http://127.0.0.1:5000/api/v1).";
+        apiOrigin && !apiOrigin.startsWith("/")
+          ? `Cannot reach API at ${apiOrigin}. Check the URL and CORS.`
+          : "Cannot reach the backend API. Start the Flask server (port 5000) and use the Vite dev server so /api is proxied, or set VITE_API_BASE_URL to the API origin only (e.g. http://127.0.0.1:5000).";
       return Promise.reject(new Error(hint));
     }
     return Promise.reject(err);

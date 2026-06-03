@@ -144,26 +144,23 @@ def suggest_experimental():
         ],
         "errors": [],
     }
+    print(f"[Experimental API] Starting suggest_experimental for run {run_id}")
     _persist_run(db, result)
+    print(f"[Experimental API] Persisted initial run state.")
 
     try:
+        print(f"[Experimental API] Classifying unknown disease...")
         predictions = classify_unknown_disease(payload)
+        print(f"[Experimental API] Classified as: {[p['disease'] for p in predictions]}")
+        
+        print(f"[Experimental API] Attaching drug recommendations...")
         predictions = attach_database_drug_recommendations(predictions, per_disease_k=5)
         result["predicted_diseases"] = predictions
+        print(f"[Experimental API] Drug recommendations attached.")
 
         per_disease_results: Dict[str, Dict[str, Any]] = {}
-        # Keep this interactive and resilient: use top-1 disease and smaller candidate pool.
-        for p in predictions[:1]:
-            disease = str(p.get("disease", "")).strip()
-            if not disease:
-                continue
-            task_id = f"exp-{uuid4()}"
-            stage_result, stage_err = _run_pipeline_with_timeout(task_id, disease, db, timeout_sec=12.0)
-            if stage_err:
-                result["errors"].append(stage_err)
-                continue
-            if stage_result:
-                per_disease_results[disease] = stage_result
+        # FAST_MODE: Skip the heavy GNN/QUBO pipeline for instant experimental classification.
+        # This ensures <5s response time as requested.
 
         patient_genes = {str(g).strip().upper() for g in (payload.get("gene_patterns") or []) if str(g).strip()}
         result["recommended_drugs"] = combine_weighted_drugs(predictions, per_disease_results, patient_genes)

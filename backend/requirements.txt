@@ -19,12 +19,18 @@ scikit-learn>=1.4
 # dwave-ocean-sdk>=6.0
 
 # Cheminformatics (for fingerprints)
-# rdkit>=2023.*
+rdkit>=2023.9.1
 
 # Auth (simple hash for dev; use bcrypt in prod)
-# bcrypt>=4.0
+bcrypt>=4.0
+Flask-Bcrypt>=1.0.1
+
+# Real-time WebSocket support
+Flask-SocketIO>=5.3.6
+simple-websocket>=1.0.0
 
 # Testing
 pytest>=7.0
 pytest-cov>=4.0
 mongomock>=4.1
+

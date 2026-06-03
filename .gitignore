@@ -59,6 +59,8 @@ test_sec_out.txt
 val_result.txt
 inspect_out.txt
 flake8*.txt
+*.log
+
 
 # =========================
 

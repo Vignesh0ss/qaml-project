@@ -1,0 +1,16 @@
+# Render Blueprint — https://render.com/docs/blueprint-spec
+# Dashboard / sync:false: MONGO_URI, SECRET_KEY, JWT_SECRET_KEY, CORS_ORIGINS (e.g. https://your-app.vercel.app)
+services:
+  - type: web
+    name: qaml-backend
+    runtime: python
+    rootDir: backend
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python run.py
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: FLASK_ENV
+        value: production
+      - key: CORS_ORIGINS
+        sync: false

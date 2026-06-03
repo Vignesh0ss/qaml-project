@@ -5,12 +5,11 @@ from flask_pymongo import PyMongo
 from flask_jwt_extended import JWTManager
 from flask_bcrypt import Bcrypt
 from flask_socketio import SocketIO
-import os
 
 mongo = PyMongo()
 jwt = JWTManager()
 bcrypt = Bcrypt()
-socketio = SocketIO(cors_allowed_origins="*")
+socketio = SocketIO()
 
 # Redis and Celery are optional for minimal run without workers
 _redis_client = None
@@ -79,5 +78,6 @@ def init_extensions(app):
     mongo.init_app(app)
     jwt.init_app(app)
     bcrypt.init_app(app)
-    socketio.init_app(app)
+    cors_origins = app.config.get("CORS_ALLOWED_ORIGINS", "*")
+    socketio.init_app(app, cors_allowed_origins=cors_origins)
     ensure_indexes(app)

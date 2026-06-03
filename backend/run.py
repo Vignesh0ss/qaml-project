@@ -1,6 +1,12 @@
 """
 Run Flask app. From repo root: PYTHONPATH=backend python backend/run.py
 Or from backend: python run.py (if PYTHONPATH includes .)
+
+Production (e.g. Render): set FLASK_ENV=production, PORT (provided by host),
+MONGO_URI, SECRET_KEY, JWT_SECRET_KEY, CORS_ORIGINS in the environment — do not commit secrets.
+
+Render free tier: the service sleeps; first HTTP request can be slow. Socket.IO/WebSocket
+clients may see reconnect failures after idle — prefer polling or tolerate retries for demos.
 """
 from app import create_app
 import os
@@ -13,7 +19,7 @@ if BACKEND not in sys.path:
 
 
 from app.extensions import socketio
-app = create_app(os.environ.get("FLASK_ENV", "development"))
+app = create_app()
 
 if __name__ == "__main__":
     socketio.run(
