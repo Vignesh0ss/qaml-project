@@ -5,6 +5,8 @@ flask-cors>=4.0
 flask-pymongo>=2.3
 flask-jwt-extended>=4.6
 python-dotenv>=1.0
+marshmallow>=3.20
+certifi>=2024.0
 
 # Optional: Celery + Redis
 celery[redis]>=5.3
