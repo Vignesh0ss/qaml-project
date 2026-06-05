@@ -56,14 +56,21 @@ CHEMBL_DB = (
     BASE_DIR / "data" / "raw" / "chembl"
     / "chembl_36_sqlite" / "chembl_36" / "chembl_36_sqlite" / "chembl_36.db"
 )
+MOCK_CHEMBL_DB = Path(__file__).resolve().parent / "mock_chembl.db"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Helper: open ChEMBL as read-only
 # ─────────────────────────────────────────────────────────────────────────────
 def _chembl_conn() -> Optional[sqlite3.Connection]:
-    if not CHEMBL_DB.is_file():
-        return None
-    p = str(CHEMBL_DB.resolve()).replace("\\", "/")
+    db_path = CHEMBL_DB
+    if not db_path.is_file():
+        db_path = MOCK_CHEMBL_DB
+        print("[Pipeline] Real ChEMBL DB not found. Falling back to mock_chembl.db")
+        if not db_path.is_file():
+            print("[Pipeline] Error: Neither real nor mock ChEMBL DB found!")
+            return None
+            
+    p = str(db_path.resolve()).replace("\\", "/")
     # Correct URI format for Windows: file:///C:/path/to/db
     if os.name == 'nt':
         if not p.startswith("/"):
@@ -74,7 +81,8 @@ def _chembl_conn() -> Optional[sqlite3.Connection]:
         
     try:
         return sqlite3.connect(uri, uri=True)
-    except Exception:
+    except Exception as e:
+        print(f"[Pipeline] SQLite connection failed: {e}")
         return None
 
 _LIPINSKI_CACHE: Dict[str, float] = {}
