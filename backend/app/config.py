@@ -75,7 +75,7 @@ class Config:
 
     # Nvidia NIM – primary AI engine
     NVIDIA_NIM_API_KEY = os.environ.get("NVIDIA_NIM_API_KEY", "")
-    NVIDIA_NIM_MODEL = os.environ.get("NVIDIA_NIM_MODEL", "meta/llama-3.1-405b-instruct")
+    NVIDIA_NIM_MODEL = os.environ.get("NVIDIA_NIM_MODEL", "meta/llama-3.3-70b-instruct")
     EXPERIMENTAL_NVIDIA_NIM_API_KEY = os.environ.get("EXPERIMENTAL_NVIDIA_NIM_API_KEY", "")
     EXPERIMENTAL_NVIDIA_NIM_MODEL = os.environ.get("EXPERIMENTAL_NVIDIA_NIM_MODEL", NVIDIA_NIM_MODEL)
     ENABLE_ESM2 = False

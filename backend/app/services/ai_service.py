@@ -12,7 +12,7 @@ import urllib.request
 from typing import Any, Dict, List
 
 _NVIDIA_NIM_API_KEY = os.environ.get("NVIDIA_NIM_API_KEY", "")
-_NVIDIA_NIM_MODEL = os.environ.get("NVIDIA_NIM_MODEL", "meta/llama-3.1-405b-instruct")
+_NVIDIA_NIM_MODEL = os.environ.get("NVIDIA_NIM_MODEL", "meta/llama-3.3-70b-instruct")
 
 _SSL_CTX = ssl._create_unverified_context()
 
