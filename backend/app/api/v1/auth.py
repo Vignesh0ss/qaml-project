@@ -141,6 +141,36 @@ def login():
     except Exception as e:
         return jsonify({"error": f"Login failed: {str(e)}"}), 500
 
+@bp.route("/auth/reset-password", methods=["POST"])
+def reset_password():
+    data = request.get_json() or {}
+    email = data.get("email")
+    new_password = data.get("new_password")
+
+    if not email or not new_password:
+        return jsonify({"error": "Email and new password are required"}), 400
+
+    db = mongo.db
+    if db is None:
+        return jsonify({"error": "Database offline"}), 503
+
+    users = db["users"]
+    try:
+        user = users.find_one({"email": email})
+        if not user:
+            return jsonify({"error": "No account found with this email address"}), 404
+
+        if not is_password_strong(new_password):
+            return jsonify({"error": "Password does not meet strength requirements"}), 400
+
+        hashed_password = bcrypt.generate_password_hash(new_password).decode('utf-8')
+        users.update_one({"_id": user["_id"]}, {"$set": {"password_hash": hashed_password}})
+
+        return jsonify({"message": "Password reset successfully"}), 200
+    except Exception as e:
+        return jsonify({"error": f"Password reset failed: {str(e)}"}), 500
+
+
 @bp.route("/auth/refresh", methods=["POST"])
 @jwt_required(refresh=True)
 def refresh():

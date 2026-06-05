@@ -143,6 +143,16 @@ export async function register(payload: RegisterPayload) {
   return data;
 }
 
+export interface ResetPasswordPayload {
+  email: string;
+  new_password: string;
+}
+
+export async function resetPassword(payload: ResetPasswordPayload) {
+  const { data } = await api.post<{ message: string }>("/auth/reset-password", payload);
+  return data;
+}
+
 export interface StatsData {
   total_queries: number;
   completed: number;
